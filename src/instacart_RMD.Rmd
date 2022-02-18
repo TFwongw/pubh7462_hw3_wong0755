@@ -1,0 +1,180 @@
+---
+title: "instacart_RMD"
+author: Tsz Fung Wong
+date: February 13, 2022
+output: 
+  github_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(DataExplorer)
+library(ggplot2)
+library(gt)
+
+#Working directory for .RMD
+knitr::opts_knit$set(echo = TRUE,
+root.dir = rprojroot::find_rstudio_root_file())
+
+#Controlling figure output in markdown
+knitr::opts_chunk$set(
+# fig.height = 4
+fig.width = 6,
+# fig.asp = .5,
+out.width = "90%",
+# out.height =
+fig.align = "center",
+cache = FALSE,
+echo = TRUE
+)
+
+#Set Theme for ggplot2
+theme_set(theme(plot.title = element_text(hjust = 0.5), legend.position = "bottom"))
+#Set Scientific notation output for knitr
+options(scipen = 999)
+options(digits = 4)
+```
+
+# Q3.1
+```{r message = FALSE, warning = FALSE}
+instacart = read_csv("./data/instacart.csv") %>% janitor::clean_names() 
+```
+
+```{r message = FALSE, warning = FALSE}
+#calculate statistics
+instacart_tf = instacart %>%
+  group_by(order_id) %>%
+  mutate(number_of_items = n(), 
+         percent_of_items_reordered = sum(reordered)/number_of_items,
+         number_of_departments = n_distinct(department_id),
+         number_of_aisles = n_distinct(aisle_id)
+  ) %>% 
+  ungroup()
+
+#keep only rows with unique id
+keep_index = instacart_tf %>% pull(order_id) %>% match(unique(.), .)
+instacart_tf = instacart_tf %>% slice(keep_index)
+
+instacart_tab = instacart_tf %>% 
+  summarise(
+    across(
+      c(days_since_prior_order, number_of_items, number_of_aisles, number_of_departments, percent_of_items_reordered),
+      list(mean = mean, median = median, sd = sd), na.rm=TRUE,
+      .names = "{.col}_{.fn}"
+      )
+  )
+
+colnames(instacart_tab) = str_replace_all(
+colnames(instacart_tab), "_", " ")
+colnames(instacart_tab) = str_to_title(
+colnames(instacart_tab))
+
+instacart_tab %>% 
+  gt() 
+```
+
+# Q3.2
+```{r, fig.height = 4, message = FALSE, warning = FALSE}
+instacart$aisle = factor(instacart$aisle)
+
+instacart %>% 
+  mutate(aisle = str_to_title(aisle)) %>%
+  group_by(aisle) %>%
+  distinct(order_id, .keep_all = TRUE) %>%  #remove same id inside same asile
+  summarise(N = n()) %>%
+  ungroup() %>%
+  mutate(aisle = fct_reorder(aisle, N), .desc = TRUE) %>%
+  ggplot(aes(x = aisle, y = N, colour = aisle)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 70,
+                                   vjust = 1,
+                                   hjust = 1.2,
+                                   size  = 3),
+        axis.text.y = element_text(size  = 5), 
+        legend.position = "none") +
+  labs(
+    x = "Aisle",
+    y = "Items Sold",
+    title = "Distribution Items Sold Across Aisle")
+```
+
+# Q3.3
+```{r}
+instacart$department =  factor(instacart$department)
+ 
+top_6_df = instacart %>%
+  group_by(department) %>%
+  mutate(items_purchased = n()) %>%
+  filter(items_purchased >=           {sort(unique(.$items_purchased), decreasing = TRUE)[6]}) # choose highest 6 departments
+
+top_6_df = top_6_df %>%
+  mutate(aisle = str_to_title(aisle),
+         department = str_to_title(department)) %>%
+  group_by(aisle, department) %>%
+  summarise(items_purchased = n()) %>%
+  arrange(department, desc(items_purchased)) %>%
+  group_by(department) %>%
+  slice(1:6) #Top 6 aisle within the departments
+
+#get correct orders of department and aisles
+top_6_df$department = fct_reorder(top_6_df$department, top_6_df$items_purchased, .desc = TRUE)
+
+top_6_df$aisle = fct_reorder(top_6_df$aisle, top_6_df$items_purchased, .desc = TRUE)
+ 
+```
+
+```{r message = FALSE, warning = FALSE}
+top_6_df %>% 
+  group_by(aisle) %>%
+  mutate(aisle = fct_reorder2(aisle, items_purchased, department), .desc = TRUE) %>%
+  rename(
+    Aisle = aisle,
+    Department = department,
+  ) %>%
+  ggplot(aes(x = Department, y = items_purchased, color = Aisle, fill = Aisle)) + 
+  geom_col() +
+  labs(
+    y = "Number of Items Sold",
+    title = "Distribution of Top 6 Asiles in Top 6 Departments") +
+  theme(legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.2, 'cm'),
+        legend.text = element_text(size=4))
+
+ 
+```
+
+# Q3.4
+```{r message = FALSE, warning = FALSE}
+instacart$aisle =  factor(instacart$aisle)
+instacart$product_name =  factor(instacart$product_name)
+
+top_5_aisles = instacart %>%
+  mutate(aisle = str_to_title(aisle)) %>%
+  group_by(aisle) %>%
+  mutate(items_purchased = n()) %>%
+  filter(items_purchased >= {sort(unique(.$items_purchased), decreasing = TRUE)[5]}) # choose highest 5 aisles
+
+top_5_aisles = top_5_aisles %>%
+  group_by(aisle, product_name) %>%
+  summarise(items_purchased = n()) %>% #get items count
+  arrange(aisle, desc(items_purchased)) %>%
+  group_by(aisle) %>%
+  slice(1:5) 
+
+top_5_aisles %>%
+  gt() %>%
+  tab_header("Top 5 Items Sold by Aisle") %>%
+  data_color(
+    columns = items_purchased,
+    colors = scales::col_numeric(
+      palette = c("white", "blue"),
+      domain  = c(0, max(items_purchased))
+    )
+  ) %>% 
+  cols_label(product_name = "Product Name",
+             items_purchased = "Items Sold") %>%
+  as_raw_html()
+```
+
